@@ -59,13 +59,14 @@ There are three possibilities on why you may get an error:
   | WRONG_PASS | You entered the wrong password. Try again. | You entered the wrong password. |
   | BAD_TOKEN | Invalid response from server. | Happens when the server sent an invalid token or response. |
   | MIX_LOAD_FAIL | (unsure) | Happens when SDL2 fails to load the music. |
-  | MIX_PLAY_FAIL | (unsure) | Happens when SDL2 fails to play the music.
+  | MIX_PLAY_FAIL | (unsure) | Happens when SDL2 fails to play the music. |
+  | USER_USED | This user is already used. | The username you chose has already been taken. Choose another username. |
   </details>
 </div>
 
 ## Current development status
 - [x] Main menu
-- [ ] Create Account screen
+- [x] Create Account screen
 - [x] Login screen
 - [x] Room selection screen
 - [ ] Chat screen
