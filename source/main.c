@@ -151,7 +151,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-void network_request(const char* url, char** result, const char* method, const char* body, const char* content_type) {
+void network_request(const char* url, char** result, const char* method, const char* body, const char* content_type, const char* authorization) {
     CURL *curl;
     CURLcode res;
     struct MemoryStruct chunk;
@@ -175,6 +175,12 @@ void network_request(const char* url, char** result, const char* method, const c
             char content_header[128];
             snprintf(content_header, sizeof(content_header), "Content-Type: %s", content_type);
             headers = curl_slist_append(headers, content_header);
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        }
+        if (authorization != NULL) {
+            char auth_header[512];
+            snprintf(auth_header, sizeof(auth_header), "auth: %s", authorization);
+            headers = curl_slist_append(headers, auth_header);
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         }
         consoleUpdate(NULL);
@@ -269,10 +275,10 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = create account, 2 = log in, 3 = error screen, 4 = room selection
+int screen = 0; // 0 = main menu, 1 = create account, 2 = log in, 3 = error screen, 4 = room selection, 5 = chat screen
 const char* username = "";
 const char* password = "";
-char token[300];
+char token[512];
 
 int mainmenuselection = 1;
 void drawMainMenu(u64 kDown) {
@@ -307,6 +313,7 @@ char* roomresult = NULL;
 int roomselection = 1;
 char** rooms = NULL;
 int roomcount = 0;
+char* selectedRoom = "";
 void drawLogIn(u64 kDown) {
     if (kDown & HidNpadButton_Down) {
         loginselection++;
@@ -339,7 +346,7 @@ void drawLogIn(u64 kDown) {
             snprintf(sender, sizeof(sender), "%s|%s|", username, password);
             char* loginreqresult = NULL;
             for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-                network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain");
+                network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
             }
             if (loginreqresult == NULL) {
                 errmsg = "The server never responded.";
@@ -376,7 +383,7 @@ void drawLogIn(u64 kDown) {
 
             // Fetch rooms
             char* roomreqresult = NULL;
-            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL);
+            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
             roomresult = roomreqresult;
 
             // Play SFX
@@ -440,7 +447,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
             snprintf(sender, sizeof(sender), "%s|%s|", username, password);
             char* loginreqresult = NULL;
             for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-                network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain");
+                network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
             }
             if (loginreqresult == NULL) {
                 errmsg = "The server never responded.";
@@ -477,7 +484,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
 
             // Fetch rooms
             char* roomreqresult = NULL;
-            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL);
+            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
             roomresult = roomreqresult;
 
             // Play SFX
@@ -556,8 +563,8 @@ void drawRoomSelection(u64 kDown) {
         if (roomselection < 1) roomselection = roomcount;
     }
     if (kDown & HidNpadButton_A) {
-        // TODO: Join selected room
-        screen = 2;
+        selectedRoom = rooms[roomselection-1];
+        screen = 5;
     }
     
     drawRect(0, 0, 1280, 40, COL_HEADER);
@@ -572,6 +579,30 @@ void drawRoomSelection(u64 kDown) {
     } else {
         drawError("Failed to load rooms", "ROOM_FETCH_FAIL");
     }
+}
+
+char* msg;
+void drawChatScreen(u64 kDown) {
+    if (kDown & HidNpadButton_B) {
+        screen = 4;
+    }
+    if (kDown & HidNpadButton_Y) {
+        char* result = openKeyboard(300, "Enter your message");
+        if (result) {
+            msg = result;
+            char sender[512];
+            snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
+            char* networkresult = NULL;
+            network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+            free(networkresult);
+        }
+    }
+    char title[128];
+    snprintf(title, sizeof(title), "Chat Screen | #%s", selectedRoom);
+    drawRect(0, 0, 1280, 40, COL_HEADER);
+    drawText(10, 28, title, COL_WHITE, 22);
+
+    drawText(1140, 707, "Press Y to type a message", COL_WHITE, 11);
 }
 
 int main(int argc, char* argv[]) {
@@ -627,6 +658,8 @@ int main(int argc, char* argv[]) {
             drawError(errmsg, errcode);
         } else if (screen == 4) {
             drawRoomSelection(kDown);
+        } else if (screen == 5) {
+            drawChatScreen(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }

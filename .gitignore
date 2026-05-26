@@ -1,4 +1,9 @@
+# --- Build Stuff ---
 build/
 *.elf
 *.nro
 *.nacp
+
+# --- Misc ---
+extras
+.vscode
