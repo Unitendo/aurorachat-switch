@@ -6,6 +6,10 @@
 #include <ft2build.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
@@ -279,6 +283,8 @@ int screen = 0; // 0 = main menu, 1 = create account, 2 = log in, 3 = error scre
 const char* username = "";
 const char* password = "";
 char token[512];
+int sock;
+struct sockaddr_in server;
 
 int mainmenuselection = 1;
 void drawMainMenu(u64 kDown) {
@@ -581,15 +587,20 @@ void drawRoomSelection(u64 kDown) {
     }
 }
 
-char* msg;
+#define MAX_MESSAGES 26
+#define MAX_MSG_LEN 350
+char messages[MAX_MESSAGES][MAX_MSG_LEN];
+int messageCount = 0;
 void drawChatScreen(u64 kDown) {
     if (kDown & HidNpadButton_B) {
+        memset(messages, 0, sizeof(messages));
+        messageCount = 0;
         screen = 4;
     }
     if (kDown & HidNpadButton_Y) {
         char* result = openKeyboard(300, "Enter your message");
         if (result) {
-            msg = result;
+            char* msg = result;
             char sender[512];
             snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
             char* networkresult = NULL;
@@ -601,8 +612,24 @@ void drawChatScreen(u64 kDown) {
     snprintf(title, sizeof(title), "Chat Screen | #%s", selectedRoom);
     drawRect(0, 0, 1280, 40, COL_HEADER);
     drawText(10, 28, title, COL_WHITE, 22);
+    for (int i = 0; i < messageCount; i++) {
+        drawText(10, 80 + (i * 24), messages[i], COL_WHITE, 22);
+    }
 
     drawText(1140, 707, "Press Y to type a message", COL_WHITE, 11);
+}
+
+
+void append_message(char* msg_username, char* msg, char* msg_room) {
+    if (strcmp(msg_room, selectedRoom) != 0) return;
+    if (messageCount >= MAX_MESSAGES) {
+        for (int i = 0; i < MAX_MESSAGES - 1; i++) {
+            memcpy(messages[i], messages[i+1], MAX_MSG_LEN);
+        }
+        messageCount = MAX_MESSAGES - 1;
+    }
+    snprintf(messages[messageCount], MAX_MSG_LEN, "<%s>: %s", msg_username, msg);
+    messageCount++;
 }
 
 int main(int argc, char* argv[]) {
@@ -621,6 +648,14 @@ int main(int argc, char* argv[]) {
     padInitializeDefault(&pad);
 
     socketInitializeDefault();
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&server, 0, sizeof(server));
+    server.sin_family = AF_INET;
+    server.sin_port = htons(3033);
+    server.sin_addr.s_addr = inet_addr("104.236.25.60");
+    connect(sock, (struct sockaddr*)&server, sizeof(server));
+    int nonblock = 1;
+    ioctl(sock, FIONBIO, &nonblock);
 
     SDL_Init(SDL_INIT_AUDIO);
     Mix_Init(MIX_INIT_MP3);
@@ -647,6 +682,18 @@ int main(int argc, char* argv[]) {
         framebuf = (u32*)framebufferBegin(&fb, &stride);
         framebuf_width = stride / sizeof(u32);
         clearScreen(COL_BG);
+
+        char buffer[1024] = {0};
+        ssize_t len = recv(sock, buffer, sizeof(buffer) - 1, 0);
+        if (len > 0) {
+            buffer[len] = '\0';
+            char* username = strtok(buffer, "|");
+            char* message  = strtok(NULL, "|");
+            char* room     = strtok(NULL, "|");
+            if (username && message && room) {
+                append_message(username, message, room);
+            }
+        } else if (len == 0) {}
         
         if (screen == 0) {
             drawMainMenu(kDown);
