@@ -141,11 +141,14 @@ void drawImage(const char* path, int x, int y) {
             framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
         }
     }
-
     for (int i = 0; i < height; i++) free(row_pointers[i]);
     free(row_pointers);
     png_destroy_read_struct(&png, &info, NULL);
     fclose(fp);
+}
+
+bool isPointInRect(int px, int py, int rx, int ry, int rw, int rh) {
+    return (px >= rx && px <= rx + rw && py >= ry && py <= ry + rh);
 }
 
 void drawText(int x, int y, const char* text, u32 color, int size) {
@@ -356,25 +359,27 @@ char token[512];
 int sock;
 struct sockaddr_in server;
 
-int mainmenuselection = 1;
 void drawMainMenu(u64 kDown) {
-    if (kDown & HidNpadButton_Down) {
-        mainmenuselection++;
-    }
-    if (kDown & HidNpadButton_Up) {
-        mainmenuselection--;
+    HidTouchScreenState touchState;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 470, 447, 341, 83)) {
+            errmsg = "Screen Work In Progress";
+            errcode = "SCR_WIP";
+            screen = 1;
+            return;
+        }
     }
     if (kDown & HidNpadButton_A) {
-        screen = mainmenuselection;
-    }
-    if (mainmenuselection == 3) {
-        mainmenuselection = 1;
-    } else if (mainmenuselection == 0) {
-        mainmenuselection = 2;
+        errmsg = "Screen Work In Progress";
+        errcode = "SCR_WIP";
+        screen = 1;
+        return;
     }
 
     drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24); // TODO: make this only appear if docked
-    drawText(1200, 715, "v26.6.3", COL_WHITE, 24);
+    drawText(1200, 715, "v26.6.5", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
