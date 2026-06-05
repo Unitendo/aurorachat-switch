@@ -22,15 +22,21 @@ CFLAGS  +=  $(INCLUDE) -D__SWITCH__
 CFLAGS  +=  -I/opt/devkitpro/portlibs/switch/include/freetype2
 CFLAGS  +=  -I/opt/devkitpro/portlibs/switch/include/curl
 CFLAGS  +=  `$(PREFIX)pkg-config --cflags SDL2_mixer`
+CFLAGS  +=  `$(PREFIX)pkg-config --cflags sdl2`
+CFLAGS  +=  `$(PREFIX)pkg-config --cflags SDL2_ttf`
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS =   -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
-LDFLAGS +=  -L/opt/devkitpro/portlibs/switch/lib -Wl,--whole-archive -lharfbuzz -Wl,--no-whole-archive
+LDFLAGS += -L/opt/devkitpro/portlibs/switch/lib
 
-LIBS := -lharfbuzz -lfreetype -lbz2 -lpng -lz -lm -lcurl -lmbedtls -lmbedcrypto -lmbedx509 -lnx `$(PREFIX)pkg-config --libs SDL2_mixer`
-LIBDIRS     := /opt/devkitpro/portlibs/switch $(LIBNX)
+LIBS := -lSDL2_ttf -lSDL2_mixer -lSDL2 \
+        -lmodplug -lmpg123 -lvorbisfile -lvorbis -logg -lopusfile -lopus \
+        -lharfbuzz -lfreetype -lpng -lbz2 -lz \
+        -lcurl -lmbedtls -lmbedcrypto -lmbedx509 \
+        -lEGL -lglapi -ldrm_nouveau -lm -lnx
+LIBDIRS := /opt/devkitpro/portlibs/switch $(LIBNX)
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
