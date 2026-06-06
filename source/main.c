@@ -381,12 +381,37 @@ void drawMainMenu(u64 kDown) {
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
 
+int ruleslinescroll = 0;
+char *rules = NULL;
+
+void loadRules() {
+    FILE *file = fopen("romfs:/rules.txt", "r");
+    rules = malloc(1168);
+    fread(rules, 1, 1167, file);
+    rules[1167] = '\0';
+    fclose(file);
+}
+
 void drawRules(u64 kDown) {
-    char* loremipsum = "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit,\nsed do eiusmod tempor\nincididunt ut labore et dolore\nmagna aliqua. Ut enim ad\nminim veniam, quis nostrud\nexercitation ullamco laboris\nnisi ut aliquip ex ea commodo\nconsequat. Duis aute irure\nballs balls balls balls balls\nballs balls balls balls balls\n";
+    if ((kDown & HidNpadButton_Up) && ruleslinescroll != 0) ruleslinescroll--;
+    else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 21) ruleslinescroll++;
     drawText(0, 24, "(use the D-Pad to scroll)", COL_WHITE, 24);
     drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
     drawImage("romfs:/images/boxes/rules.png", 439, 203);
-    drawText(447, 235, loremipsum, COL_BLACK, 27);
+
+    char *copy = strdup(rules);
+    int linenum = 0;
+    char *line = strtok(copy, "\n");
+    while (line != NULL) {
+        int y = (235 - (ruleslinescroll * 20)) + (linenum * 20);
+        if (y >= 235 && y <= 545) {
+            drawText(447, y, line, COL_BLACK, 20);
+        }
+        linenum++;
+        line = strtok(NULL, "\n");
+    }
+    free(copy);
+
     drawImage("romfs:/images/buttons/done.png", 524, 598);
 }
 
@@ -734,6 +759,7 @@ int main(int argc, char* argv[]) {
     int nonblock = 1;
     ioctl(sock, FIONBIO, &nonblock);
 
+    loadRules();
     SDL_Init(SDL_INIT_AUDIO);
     Mix_Init(MIX_INIT_MP3);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, 4096);
