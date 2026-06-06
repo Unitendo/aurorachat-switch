@@ -360,6 +360,7 @@ int sock;
 struct sockaddr_in server;
 
 void drawMainMenu(u64 kDown) {
+    AppletOperationMode mode = appletGetOperationMode();
     HidTouchScreenState touchState;
     if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
         u32 tx = touchState.touches[0].x;
@@ -378,7 +379,7 @@ void drawMainMenu(u64 kDown) {
         return;
     }
 
-    drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24); // TODO: make this only appear if docked
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
     drawText(1200, 715, "v26.6.5", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
