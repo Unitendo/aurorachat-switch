@@ -366,11 +366,33 @@ void drawMainMenu(u64 kDown) {
         u32 tx = touchState.touches[0].x;
         u32 ty = touchState.touches[0].y;
         if (isPointInRect(tx, ty, 470, 447, 341, 83)) {
+            Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+            if (!audio) {
+                errmsg = Mix_GetError();
+                errcode = "MIX_LOAD_FAIL";
+                screen = 1;
+            } else if (Mix_PlayMusic(audio, -1) < 0) {
+                errmsg = Mix_GetError();
+                errcode = "MIX_PLAY_FAIL";
+                screen = 1;
+            }
+            Mix_PlayMusic(audio, -1);
             screen = 2;
             return;
         }
     }
     if (kDown & HidNpadButton_A) {
+        Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+        if (!audio) {
+            errmsg = Mix_GetError();
+            errcode = "MIX_LOAD_FAIL";
+            screen = 1;
+        } else if (Mix_PlayMusic(audio, -1) < 0) {
+            errmsg = Mix_GetError();
+            errcode = "MIX_PLAY_FAIL";
+            screen = 1;
+        }
+        Mix_PlayMusic(audio, -1);
         screen = 2;
         return;
     }
@@ -444,7 +466,7 @@ void drawLogIn(u64 kDown) {
             if (strlen(username) == 0 || strlen(password) == 0) {
                 errmsg = "Invalid username or password";
                 errcode = "INV_AUTH";
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -460,7 +482,7 @@ void drawLogIn(u64 kDown) {
                 errmsg = "The server never responded.";
                 errcode = "SRV_UNREACH";
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -469,7 +491,7 @@ void drawLogIn(u64 kDown) {
                 errcode = "WRONG_PASS";
                 free(loginreqresult);
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -483,7 +505,7 @@ void drawLogIn(u64 kDown) {
                 errmsg = "Invalid response from server.";
                 errcode = "BAD_TOKEN";
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
             strncpy(token, parsed_token, sizeof(token) - 1);
@@ -545,7 +567,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
             if (strlen(username) == 0 || strlen(password) == 0) {
                 errmsg = "Invalid username or password";
                 errcode = "INV_AUTH";
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -561,7 +583,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
                 errmsg = "The server never responded.";
                 errcode = "SRV_UNREACH";
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -570,7 +592,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
                 errcode = "USER_USED";
                 free(loginreqresult);
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
 
@@ -584,7 +606,7 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
                 errmsg = "Invalid response from server.";
                 errcode = "BAD_TOKEN";
                 loginAttempted = false;
-                screen = 3;
+                screen = 1;
                 return;
             }
             strncpy(token, parsed_token, sizeof(token) - 1);
@@ -763,15 +785,15 @@ int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_AUDIO);
     Mix_Init(MIX_INIT_MP3);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, 4096);
-    Mix_Music *audio = Mix_LoadMUS("romfs:/music/loop.mp3");
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/setup.mp3");
     if (!audio) {
         errmsg = Mix_GetError();
         errcode = "MIX_LOAD_FAIL";
-        screen = 3;
+        screen = 1;
     } else if (Mix_PlayMusic(audio, -1) < 0) {
         errmsg = Mix_GetError();
         errcode = "MIX_PLAY_FAIL";
-        screen = 3;
+        screen = 1;
     }
     Mix_PlayMusic(audio, -1);
     
