@@ -352,7 +352,7 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen
+int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen
 const char* username = "";
 const char* password = "";
 char token[512];
@@ -450,6 +450,12 @@ void drawRules(u64 kDown) {
     drawImage("romfs:/images/buttons/done.png", 524, 598);
 }
 
+void drawLogin(u64 kDown) {
+    drawText(0, 0, "Y to show password", COL_WHITE, 24);
+    drawImage("romfs:/images/boxes/username.png", 240, 162);
+    // TODO: place all images
+}
+
 int loginselection = 1;
 bool loginAttempted = false;
 char* roomresult = NULL;
@@ -457,7 +463,7 @@ int roomselection = 1;
 char** rooms = NULL;
 int roomcount = 0;
 char* selectedRoom = "";
-void drawLogIn(u64 kDown) {
+void oldDrawLogIn(u64 kDown) {
     if (kDown & HidNpadButton_Down) {
         loginselection++;
     }
