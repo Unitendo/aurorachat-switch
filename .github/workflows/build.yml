@@ -2,12 +2,12 @@ name: Build Aurorachat
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     paths:
       - 'source/**'
       - '.github/workflows/build.yml'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
     paths:
       - 'source/**'
       - '.github/workflows/build.yml'
