@@ -10,6 +10,8 @@
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <png.h>
+#include <setjmp.h>
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
@@ -76,6 +78,77 @@ void drawGlyph(int x, int y, FT_Bitmap* bmp, u32 color) {
             framebuf[py * framebuf_width + px] = RGBA(r, g, b, 0xFF);
         }
     }
+}
+
+void drawImage(const char* path, int x, int y) {
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return;
+
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        fclose(fp);
+        return;
+    }
+    png_infop info = png_create_info_struct(png);
+    if (!info) {
+        png_destroy_read_struct(&png, NULL, NULL);
+        fclose(fp);
+        return;
+    }
+    if (setjmp(png_jmpbuf(png))) {
+        png_destroy_read_struct(&png, &info, NULL);
+        fclose(fp);
+        return;
+    }
+    png_init_io(png, fp);
+    png_read_info(png, info);
+
+    int width = png_get_image_width(png, info);
+    int height = png_get_image_height(png, info);
+    png_byte color_type = png_get_color_type(png, info);
+    png_byte bit_depth = png_get_bit_depth(png, info);
+
+    if (bit_depth == 16) png_set_strip_16(png);
+    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
+    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
+    if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_PALETTE) png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
+
+    png_read_update_info(png, info);
+    png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+    for(int i = 0; i < height; i++) row_pointers[i] = (png_byte*)malloc(png_get_rowbytes(png,info));
+    png_read_image(png, row_pointers);
+
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            int px = x + col;
+            int py = y + row;
+            if (px < 0 || px >= 1280 || py < 0 || py >= 720) continue;
+            png_byte* pixel = &(row_pointers[row][col * 4]);
+            u8 r = pixel[0];
+            u8 g = pixel[1];
+            u8 b = pixel[2];
+            u8 a = pixel[3];
+            if (a == 0) continue;
+            u32 existing = framebuf[py * framebuf_width + px];
+            u8 er = (existing >>  0) & 0xFF;
+            u8 eg = (existing >>  8) & 0xFF;
+            u8 eb = (existing >> 16) & 0xFF;
+            u8 dr = (r * a + er * (255 - a)) / 255;
+            u8 dg = (g * a + eg * (255 - a)) / 255;
+            u8 db = (b * a + eb * (255 - a)) / 255;
+            framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
+        }
+    }
+    for (int i = 0; i < height; i++) free(row_pointers[i]);
+    free(row_pointers);
+    png_destroy_read_struct(&png, &info, NULL);
+    fclose(fp);
+}
+
+bool isPointInRect(int px, int py, int rx, int ry, int rw, int rh) {
+    return (px >= rx && px <= rx + rw && py >= ry && py <= ry + rh);
 }
 
 void drawText(int x, int y, const char* text, u32 color, int size) {
@@ -279,247 +352,297 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = create account, 2 = log in, 3 = error screen, 4 = room selection, 5 = chat screen
-const char* username = "";
-const char* password = "";
+int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen, 4 = room selection, 5 = chat screen
+char username[19];
+char password[16];
 char token[512];
 int sock;
 struct sockaddr_in server;
 
-int mainmenuselection = 1;
 void drawMainMenu(u64 kDown) {
-    if (kDown & HidNpadButton_Down) {
-        mainmenuselection++;
-    }
-    if (kDown & HidNpadButton_Up) {
-        mainmenuselection--;
+    AppletOperationMode mode = appletGetOperationMode();
+    HidTouchScreenState touchState;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 470, 447, 341, 83)) {
+            screen = 2;
+            return;
+        }
     }
     if (kDown & HidNpadButton_A) {
-        screen = mainmenuselection;
-    }
-    if (mainmenuselection == 3) {
-        mainmenuselection = 1;
-    } else if (mainmenuselection == 0) {
-        mainmenuselection = 2;
+        screen = 2;
+        return;
     }
 
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "AuroraChat Switch", COL_WHITE, 22);
-
-    drawRect(0, 40, 1280, 40, mainmenuselection == 1 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+40, "Create Account", COL_WHITE, 22);
-
-    drawRect(0, 82, 1280, 40, mainmenuselection == 2 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+82, "Log In", COL_WHITE, 22);
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
+    drawText(1180, 715, "v26.7.14", COL_WHITE, 24);
+    drawImage("romfs:/images/aurorachat.png", 383, 190);
+    drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
 
+int ruleslinescroll = 0;
+char *rules = NULL;
+
+void loadRules() {
+    FILE *file = fopen("romfs:/rules.txt", "r");
+    rules = malloc(1186);
+    fread(rules, 1, 1185, file);
+    rules[1185] = '\0';
+    fclose(file);
+}
+
+void drawRules(u64 kDown) {
+    HidTouchScreenState touchState;
+    if ((kDown & HidNpadButton_Up) && ruleslinescroll != 0) ruleslinescroll--;
+    else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 30) ruleslinescroll++;
+    else if (kDown & HidNpadButton_A) {
+        screen = 3;
+        return;
+    }
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 524, 598, 232, 73)) {
+            screen = 3;
+            return;
+        }
+    }
+    drawText(0, 24, "Use the D-Pad to scroll\nA to agree with the Code of Conduct", COL_WHITE, 24);
+    drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
+    drawImage("romfs:/images/boxes/rules.png", 439, 203);
+
+    char *copy = strdup(rules);
+    int linenum = 0;
+    char *line = strtok(copy, "\n");
+    while (line != NULL) {
+        int y = (235 - (ruleslinescroll * 20)) + (linenum * 20);
+        if (y >= 235 && y <= 545) {
+            drawText(447, y, line, COL_BLACK, 20);
+        }
+        linenum++;
+        line = strtok(NULL, "\n");
+    }
+    free(copy);
+
+    drawImage("romfs:/images/buttons/done.png", 524, 598);
+}
+
+bool showpass = false;
 int loginselection = 1;
 bool loginAttempted = false;
 char* roomresult = NULL;
-int roomselection = 1;
 char** rooms = NULL;
 int roomcount = 0;
-char* selectedRoom = "";
-void drawLogIn(u64 kDown) {
-    if (kDown & HidNpadButton_Down) {
-        loginselection++;
-    }
-    if (kDown & HidNpadButton_Up) {
-        loginselection--;
-    }
-    if (kDown & HidNpadButton_A) {
-        if (loginselection == 1) {
-            char* result = openKeyboard(255, "Enter your username");
-            if (result) {
-                username = result;
-            }
-        } else if (loginselection == 2) {
-            char* result = openKeyboard(255, "Enter your password");
-            if (result) {
-                password = result;
-            }
-        } else if (loginselection == 3) {
-            if (strlen(username) == 0 || strlen(password) == 0) {
-                errmsg = "Invalid username or password";
-                errcode = "INV_AUTH";
-                screen = 3;
-                return;
-            }
 
-            if (loginAttempted) return;
-            loginAttempted = true;
-            char sender[512];
-            snprintf(sender, sizeof(sender), "%s|%s|", username, password);
-            char* loginreqresult = NULL;
-            for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-                network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
-            }
-            if (loginreqresult == NULL) {
-                errmsg = "The server never responded.";
-                errcode = "SRV_UNREACH";
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-
-            if (strstr(loginreqresult, "ERR_WRONG_PASS") != NULL) {
-                errmsg = "You entered the wrong password. Try again.";
-                errcode = "WRONG_PASS";
-                free(loginreqresult);
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-
-            char loginbuf[1024];
-            strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
-            loginbuf[sizeof(loginbuf) - 1] = '\0';
-            free(loginreqresult);
-
-            char* parsed_token = strtok(loginbuf, "|");
-            if (parsed_token == NULL) {
-                errmsg = "Invalid response from server.";
-                errcode = "BAD_TOKEN";
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-            strncpy(token, parsed_token, sizeof(token) - 1);
-            token[sizeof(token) - 1] = '\0';
-
-            // Fetch rooms
-            char* roomreqresult = NULL;
-            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
-            roomresult = roomreqresult;
-
-            // Play SFX
-            Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
-            playSFX(signedup_sfx, 150);
-
-            screen = 4;
-        }
-    }
-    if (kDown & HidNpadButton_B) {
-        screen = 0;
-    }
-    if (loginselection == 4) {
-        loginselection = 1;
-    } else if (loginselection == 0) {
-        loginselection = 3;
+void login() {
+    if (strlen(username) == 0 || strlen(password) == 0) {
+        errmsg = "Invalid username or password";
+        errcode = "INV_AUTH";
+        screen = 1;
+        return;
     }
 
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "Log In", COL_WHITE, 22);
+    if (loginAttempted) return;
+    loginAttempted = true;
+    char sender[512];
+    snprintf(sender, sizeof(sender), "%s|%s|", username, password);
+    char* loginreqresult = NULL;
+    for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
+        network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
+    }
+    if (loginreqresult == NULL) {
+        errmsg = "The server never responded.";
+        errcode = "SRV_UNREACH";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
 
-    drawRect(0, 40, 1280, 40, loginselection == 1 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+40, "Username", COL_WHITE, 22);
+    if (strstr(loginreqresult, "ERR_WRONG_PASS") != NULL) {
+        errmsg = "You entered the wrong password. Try again.";
+        errcode = "WRONG_PASS";
+        free(loginreqresult);
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
 
-    drawRect(0, 82, 1280, 40, loginselection == 2 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+82, "Password", COL_WHITE, 22);
+    char loginbuf[1024];
+    strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
+    loginbuf[sizeof(loginbuf) - 1] = '\0';
+    free(loginreqresult);
 
-    drawRect(0, 124, 1280, 40, loginselection == 3 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+124, "Log In", COL_WHITE, 22);
+    char* parsed_token = strtok(loginbuf, "|");
+    if (parsed_token == NULL) {
+        errmsg = "Invalid response from server.";
+        errcode = "BAD_TOKEN";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+    strncpy(token, parsed_token, sizeof(token) - 1);
+    token[sizeof(token) - 1] = '\0';
+
+    // Fetch rooms
+    char* roomreqresult = NULL;
+    network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
+    roomresult = roomreqresult;
+
+    // Play SFX
+    Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
+    playSFX(signedup_sfx, 150);
+
+    // Change Music
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+    if (!audio) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_LOAD_FAIL";
+        screen = 1;
+    } else if (Mix_PlayMusic(audio, -1) < 0) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_PLAY_FAIL";
+        screen = 1;
+    }
+    Mix_PlayMusic(audio, -1);
+
+    screen = 4;
 }
 
-void drawCreateAccount(u64 kDown) { // create account is just login but with signup instead
-    if (kDown & HidNpadButton_Down) {
-        loginselection++;
+void createAccount() {
+    if (strlen(username) == 0 || strlen(password) == 0) {
+        errmsg = "Invalid username or password";
+        errcode = "INV_AUTH";
+        screen = 1;
+        return;
     }
-    if (kDown & HidNpadButton_Up) {
-        loginselection--;
+
+    if (loginAttempted) return;
+    loginAttempted = true;
+    char sender[512];
+    snprintf(sender, sizeof(sender), "%s|%s|", username, password);
+    char* loginreqresult = NULL;
+    for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
+        network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
     }
-    if (kDown & HidNpadButton_A) {
-        if (loginselection == 1) {
-            char* result = openKeyboard(255, "Enter your username");
+    if (loginreqresult == NULL) {
+        errmsg = "The server never responded.";
+        errcode = "SRV_UNREACH";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+
+    if (strstr(loginreqresult, "ERR_USER_USED") != NULL) {
+        errmsg = "This user is already used.";
+        errcode = "USER_USED";
+        free(loginreqresult);
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+
+    char loginbuf[1024];
+    strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
+    loginbuf[sizeof(loginbuf) - 1] = '\0';
+    free(loginreqresult);
+
+    char* parsed_token = strtok(loginbuf, "|");
+    if (parsed_token == NULL) {
+        errmsg = "Invalid response from server.";
+        errcode = "BAD_TOKEN";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+    strncpy(token, parsed_token, sizeof(token) - 1);
+    token[sizeof(token) - 1] = '\0';
+
+    // Fetch rooms
+    char* roomreqresult = NULL;
+    network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
+    roomresult = roomreqresult;
+
+    // Play SFX
+    Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
+    playSFX(signedup_sfx, 150);
+
+    // Change Music
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+    if (!audio) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_LOAD_FAIL";
+        screen = 1;
+    } else if (Mix_PlayMusic(audio, -1) < 0) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_PLAY_FAIL";
+        screen = 1;
+    }
+    Mix_PlayMusic(audio, -1);
+
+    screen = 4;
+}
+
+void drawLogin(u64 kDown) {
+    HidTouchScreenState touchState;
+    AppletOperationMode mode = appletGetOperationMode();
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show/hide password\nA to type the username\nB to type the password\nUP to Log In\nDOWN to Create an Account", COL_WHITE, 24);
+    if (kDown & HidNpadButton_Y) {
+        showpass = !showpass;
+    } else if (kDown & HidNpadButton_A) {
+        char* result = openKeyboard(19, "Enter your username");
+        if (result) {
+            strncpy(username, result, sizeof(username) - 1);
+            username[sizeof(username) - 1] = '\0';
+            free(result);
+        }
+    } else if (kDown & HidNpadButton_B) {
+        char* result = openKeyboard(19, "Enter your password");
+        if (result) {
+            strncpy(password, result, sizeof(password) - 1);
+            password[sizeof(password) - 1] = '\0';
+            free(result);
+        }
+    } else if (kDown & HidNpadButton_Up) {
+        login();
+    } else if (kDown & HidNpadButton_Down) {
+        createAccount();
+    }
+    static bool showTouchWasDown = false;
+    bool showTouchDown = false;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 956, 266, 84, 73)) {
+            showTouchDown = true;
+        } else if (isPointInRect(tx, ty, 240, 162, 800, 73)) {
+            char* result = openKeyboard(19, "Enter your username");
             if (result) {
-                username = result;
+                strncpy(username, result, sizeof(username) - 1);
+                username[sizeof(username) - 1] = '\0';
+                free(result);
             }
-        } else if (loginselection == 2) {
-            char* result = openKeyboard(255, "Enter your password");
+        } else if (isPointInRect(tx, ty, 240, 266, 800, 73)) {
+            char* result = openKeyboard(19, "Enter your password");
             if (result) {
-                password = result;
+                strncpy(password, result, sizeof(password) - 1);
+                password[sizeof(password) - 1] = '\0';
+                free(result);
             }
-        } else if (loginselection == 3) {
-            if (strlen(username) == 0 || strlen(password) == 0) {
-                errmsg = "Invalid username or password";
-                errcode = "INV_AUTH";
-                screen = 3;
-                return;
-            }
-
-            if (loginAttempted) return;
-            loginAttempted = true;
-            char sender[512];
-            snprintf(sender, sizeof(sender), "%s|%s|", username, password);
-            char* loginreqresult = NULL;
-            for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-                network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
-            }
-            if (loginreqresult == NULL) {
-                errmsg = "The server never responded.";
-                errcode = "SRV_UNREACH";
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-
-            if (strstr(loginreqresult, "ERR_USER_USED") != NULL) {
-                errmsg = "This user is already used.";
-                errcode = "USER_USED";
-                free(loginreqresult);
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-
-            char loginbuf[1024];
-            strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
-            loginbuf[sizeof(loginbuf) - 1] = '\0';
-            free(loginreqresult);
-
-            char* parsed_token = strtok(loginbuf, "|");
-            if (parsed_token == NULL) {
-                errmsg = "Invalid response from server.";
-                errcode = "BAD_TOKEN";
-                loginAttempted = false;
-                screen = 3;
-                return;
-            }
-            strncpy(token, parsed_token, sizeof(token) - 1);
-            token[sizeof(token) - 1] = '\0';
-
-            // Fetch rooms
-            char* roomreqresult = NULL;
-            network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
-            roomresult = roomreqresult;
-
-            // Play SFX
-            Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
-            playSFX(signedup_sfx, 150);
-
-            screen = 4;
+        } else if (isPointInRect(tx, ty, 524, 420, 232, 73)) {
+            login();
+        } else if (isPointInRect(tx, ty, 506, 516, 267, 51)) {
+            createAccount();
         }
     }
-    if (kDown & HidNpadButton_B) {
-        screen = 0;
-    }
-    if (loginselection == 4) {
-        loginselection = 1;
-    } else if (loginselection == 0) {
-        loginselection = 3;
-    }
-
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "Create Account", COL_WHITE, 22);
-
-    drawRect(0, 40, 1280, 40, loginselection == 1 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+40, "Username", COL_WHITE, 22);
-
-    drawRect(0, 82, 1280, 40, loginselection == 2 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+82, "Password", COL_WHITE, 22);
-
-    drawRect(0, 124, 1280, 40, loginselection == 3 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+124, "Create Account", COL_WHITE, 22);
+    if (showTouchDown && !showTouchWasDown) showpass = !showpass;
+    showTouchWasDown = showTouchDown;
+    drawImage("romfs:/images/boxes/username.png", 240, 162);
+    drawText(514, 211, username, COL_WHITE, 48);
+    drawImage(showpass ? "romfs:/images/boxes/password_hide.png" : "romfs:/images/boxes/password.png", 240, 266);
+    drawText(514, 315, showpass ? password : "****************", COL_WHITE, 48);
+    drawImage("romfs:/images/buttons/login.png", 524, 420);
+    drawImage("romfs:/images/buttons/createacc.png", 506, 516);
 }
 
 void parseRooms(const char* roomdata) {
@@ -553,45 +676,63 @@ void parseRooms(const char* roomdata) {
     }
     
     free(data);
-    roomselection = 1;
 }
+
+// but are they truly useless? Nope nevermind
+int roomselection = 1;
+char* selectedRoom = "";
 
 void drawRoomSelection(u64 kDown) {
     if (roomresult && !rooms) {
         parseRooms(roomresult);
     }
+    AppletOperationMode mode = appletGetOperationMode();
+    HidTouchScreenState touchState;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (rooms && roomcount > 0) {
+            for (int i = 0; i < roomcount; i++) {
+                int y_pos = 77 + (i * 85);
+                if (isPointInRect(tx, ty, 17, y_pos, 1249, 73)) {
+                    roomselection = i + 1;
+                    selectedRoom = rooms[i];
+                    screen = 5;
+                    return;
+                }
+            }
+        }
+    }
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "D-Pad to Select a Room\nA to Enter the Selected Room", COL_WHITE, 24);
     if (kDown & HidNpadButton_Down) {
         roomselection++;
         if (roomselection > roomcount) roomselection = 1;
-    }
-    if (kDown & HidNpadButton_Up) {
+    } else if (kDown & HidNpadButton_Up) {
         roomselection--;
         if (roomselection < 1) roomselection = roomcount;
-    }
-    if (kDown & HidNpadButton_A) {
+    } else if (kDown & HidNpadButton_A) {
         selectedRoom = rooms[roomselection-1];
         screen = 5;
     }
-    
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "Room Selection", COL_WHITE, 22);
+    drawText(463, 48, "Room Selection", COL_WHITE, 48);
 
     if (rooms && roomcount > 0) {
         for (int i = 0; i < roomcount; i++) {
-            int y_pos = 40 + (i * 42);
-            drawRect(0, y_pos, 1280, 40, (i + 1 == roomselection) ? COL_HOVER : COL_PANEL);
-            drawText(10, y_pos + 28, rooms[i], COL_WHITE, 22);
+            int y_pos = 77 + (i * 85);
+            drawImage((i + 1 == roomselection) ? "romfs:/images/boxes/room_hover.png" : "romfs:/images/boxes/room.png", 17, y_pos);
+            drawText(35, y_pos+55, rooms[i], COL_WHITE, 48);
         }
     } else {
         drawError("Failed to load rooms", "ROOM_FETCH_FAIL");
     }
 }
 
-#define MAX_MESSAGES 26
+#define MAX_MESSAGES 20
 #define MAX_MSG_LEN 350
 char messages[MAX_MESSAGES][MAX_MSG_LEN];
 int messageCount = 0;
 void drawChatScreen(u64 kDown) {
+    HidTouchScreenState touchState;
     if (kDown & HidNpadButton_B) {
         memset(messages, 0, sizeof(messages));
         messageCount = 0;
@@ -608,17 +749,30 @@ void drawChatScreen(u64 kDown) {
             free(networkresult);
         }
     }
-    char title[128];
-    snprintf(title, sizeof(title), "Chat Screen | #%s", selectedRoom);
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, title, COL_WHITE, 22);
-    for (int i = 0; i < messageCount; i++) {
-        drawText(10, 80 + (i * 24), messages[i], COL_WHITE, 22);
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 0, 647, 1280, 73)) {
+            char* result = openKeyboard(300, "Enter your message");
+            if (result) {
+                char* msg = result;
+                char sender[512];
+                snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
+                char* networkresult = NULL;
+                network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+                free(networkresult);
+            }
+        }
     }
-
-    drawText(1140, 707, "Press Y to type a message", COL_WHITE, 11);
+    char title[128];
+    snprintf(title, sizeof(title), "Chat Screen - %s", selectedRoom);
+    drawText(0, 48, title, COL_WHITE, 48);
+    drawText(1043, 24, "Y to send a message\nB to go back", COL_WHITE, 24);
+    for (int i = 0; i < messageCount; i++) {
+        drawText(10, 82 + (i * 24), messages[i], COL_WHITE, 24);
+    }
+    drawImage("romfs:/images/boxes/sendmessage.png", 0, 647);
 }
-
 
 void append_message(char* msg_username, char* msg, char* msg_room) {
     if (strcmp(msg_room, selectedRoom) != 0) return;
@@ -657,18 +811,19 @@ int main(int argc, char* argv[]) {
     int nonblock = 1;
     ioctl(sock, FIONBIO, &nonblock);
 
+    loadRules();
     SDL_Init(SDL_INIT_AUDIO);
     Mix_Init(MIX_INIT_MP3);
     Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, MIX_DEFAULT_CHANNELS, 4096);
-    Mix_Music *audio = Mix_LoadMUS("romfs:/music/loop.mp3");
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/setup.mp3");
     if (!audio) {
         errmsg = Mix_GetError();
         errcode = "MIX_LOAD_FAIL";
-        screen = 3;
+        screen = 1;
     } else if (Mix_PlayMusic(audio, -1) < 0) {
         errmsg = Mix_GetError();
         errcode = "MIX_PLAY_FAIL";
-        screen = 3;
+        screen = 1;
     }
     Mix_PlayMusic(audio, -1);
     
@@ -698,11 +853,11 @@ int main(int argc, char* argv[]) {
         if (screen == 0) {
             drawMainMenu(kDown);
         } else if (screen == 1) {
-            drawCreateAccount(kDown);
-        } else if (screen == 2) {
-            drawLogIn(kDown);
-        } else if (screen == 3) {
             drawError(errmsg, errcode);
+        } else if (screen == 2) {
+            drawRules(kDown);
+        } else if (screen == 3) {
+            drawLogin(kDown);
         } else if (screen == 4) {
             drawRoomSelection(kDown);
         } else if (screen == 5) {

@@ -2,12 +2,12 @@ name: Build Aurorachat
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     paths:
       - 'source/**'
       - '.github/workflows/build.yml'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
     paths:
       - 'source/**'
       - '.github/workflows/build.yml'
@@ -26,16 +26,25 @@ jobs:
         run: |
           make
 
-      - name: Upload switch buld
+      - name: Upload switch build
         uses: actions/upload-artifact@v7
         with:
           name: aurorachat switch Automatic Build (could be unfinished!)
           path: ./aurorachat-switch.nro
+      
+      - name: Quick Ping
+        run: |
+          curl -H "Content-Type: application/json" \
+          -X POST \
+          -d '{"content": "New switch build. Click the top link at https://github.com/Unitendo/aurorachat-switch/actions/workflows/build.yml . If you dont know how to do this, I will find you."}' \
+          ${{ secrets.DISCORD_WEBHOOK }}
+
       - name: Setup Java JDK
         uses: actions/setup-java@v5.1.0
         with:
           distribution: zulu
           java-version: '21'
+          
       - name: Setup .NET Core SDK
         uses: actions/setup-dotnet@v5.1.0
         with:
