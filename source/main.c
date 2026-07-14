@@ -352,7 +352,7 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen
+int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen, 4 = room selection
 char username[19];
 char password[16];
 char token[512];
@@ -376,7 +376,7 @@ void drawMainMenu(u64 kDown) {
     }
 
     if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
-    drawText(1180, 715, "v26.7.13", COL_WHITE, 24);
+    drawText(1180, 715, "v26.7.14", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
@@ -397,17 +397,6 @@ void drawRules(u64 kDown) {
     if ((kDown & HidNpadButton_Up) && ruleslinescroll != 0) ruleslinescroll--;
     else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 30) ruleslinescroll++;
     else if (kDown & HidNpadButton_A) {
-        Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
-        if (!audio) {
-            errmsg = Mix_GetError();
-            errcode = "MIX_LOAD_FAIL";
-            screen = 1;
-        } else if (Mix_PlayMusic(audio, -1) < 0) {
-            errmsg = Mix_GetError();
-            errcode = "MIX_PLAY_FAIL";
-            screen = 1;
-        }
-        Mix_PlayMusic(audio, -1);
         screen = 3;
         return;
     }
@@ -415,17 +404,6 @@ void drawRules(u64 kDown) {
         u32 tx = touchState.touches[0].x;
         u32 ty = touchState.touches[0].y;
         if (isPointInRect(tx, ty, 524, 598, 232, 73)) {
-            Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
-            if (!audio) {
-                errmsg = Mix_GetError();
-                errcode = "MIX_LOAD_FAIL";
-                screen = 1;
-            } else if (Mix_PlayMusic(audio, -1) < 0) {
-                errmsg = Mix_GetError();
-                errcode = "MIX_PLAY_FAIL";
-                screen = 1;
-            }
-            Mix_PlayMusic(audio, -1);
             screen = 3;
             return;
         }
@@ -515,6 +493,19 @@ void login() {
     Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
     playSFX(signedup_sfx, 150);
 
+    // Change Music
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+    if (!audio) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_LOAD_FAIL";
+        screen = 1;
+    } else if (Mix_PlayMusic(audio, -1) < 0) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_PLAY_FAIL";
+        screen = 1;
+    }
+    Mix_PlayMusic(audio, -1);
+
     screen = 4;
 }
 
@@ -576,12 +567,21 @@ void createAccount() {
     Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
     playSFX(signedup_sfx, 150);
 
+    // Change Music
+    Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+    if (!audio) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_LOAD_FAIL";
+        screen = 1;
+    } else if (Mix_PlayMusic(audio, -1) < 0) {
+        errmsg = Mix_GetError();
+        errcode = "MIX_PLAY_FAIL";
+        screen = 1;
+    }
+    Mix_PlayMusic(audio, -1);
+
     screen = 4;
 }
-
-// TODO: remove these useless vars
-int roomselection = 1;
-char* selectedRoom = "";
 
 void drawLogin(u64 kDown) {
     HidTouchScreenState touchState;
@@ -676,39 +676,58 @@ void parseRooms(const char* roomdata) {
     }
     
     free(data);
-    roomselection = 1;
 }
+
+// but are they truly useless? Nope nevermind
+int roomselection = 1;
+char* selectedRoom = "";
 
 void drawRoomSelection(u64 kDown) {
     if (roomresult && !rooms) {
         parseRooms(roomresult);
     }
+    AppletOperationMode mode = appletGetOperationMode();
+    HidTouchScreenState touchState;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (rooms && roomcount > 0) {
+            for (int i = 0; i < roomcount; i++) {
+                int y_pos = 77 + (i * 85);
+                if (isPointInRect(tx, ty, 17, y_pos, 1249, 73)) {
+                    roomselection = i + 1;
+                    selectedRoom = rooms[i];
+                    screen = 5;
+                    return;
+                }
+            }
+        }
+    }
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "D-Pad to Select a Room\nA to Enter the Selected Room", COL_WHITE, 24);
     if (kDown & HidNpadButton_Down) {
         roomselection++;
         if (roomselection > roomcount) roomselection = 1;
-    }
-    if (kDown & HidNpadButton_Up) {
+    } else if (kDown & HidNpadButton_Up) {
         roomselection--;
         if (roomselection < 1) roomselection = roomcount;
-    }
-    if (kDown & HidNpadButton_A) {
+    } else if (kDown & HidNpadButton_A) {
         selectedRoom = rooms[roomselection-1];
         screen = 5;
     }
-    
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "Room Selection", COL_WHITE, 22);
+    drawText(463, 48, "Room Selection", COL_WHITE, 48);
 
     if (rooms && roomcount > 0) {
         for (int i = 0; i < roomcount; i++) {
-            int y_pos = 40 + (i * 42);
-            drawRect(0, y_pos, 1280, 40, (i + 1 == roomselection) ? COL_HOVER : COL_PANEL);
-            drawText(10, y_pos + 28, rooms[i], COL_WHITE, 22);
+            int y_pos = 77 + (i * 85);
+            drawImage((i + 1 == roomselection) ? "romfs:/images/boxes/room_hover.png" : "romfs:/images/boxes/room.png", 17, y_pos);
+            drawText(35, y_pos+55, rooms[i], COL_WHITE, 48);
         }
     } else {
         drawError("Failed to load rooms", "ROOM_FETCH_FAIL");
     }
 }
+
+// old script starts here
 
 #define MAX_MESSAGES 26
 #define MAX_MSG_LEN 350
@@ -827,6 +846,8 @@ int main(int argc, char* argv[]) {
             drawRules(kDown);
         } else if (screen == 3) {
             drawLogin(kDown);
+        } else if (screen == 4) {
+            drawRoomSelection(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }

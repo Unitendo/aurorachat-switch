@@ -68,5 +68,5 @@ There are three possibilities on why you may get an error:
 - [x] Main menu
 - [x] Rules screen
 - [x] Login/Create Account screen
-- [] Room selection screen
+- [x] Room selection screen
 - [] Chat screen
