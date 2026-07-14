@@ -352,7 +352,7 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen, 4 = room selection
+int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen, 4 = room selection, 5 = chat screen
 char username[19];
 char password[16];
 char token[512];
@@ -727,13 +727,12 @@ void drawRoomSelection(u64 kDown) {
     }
 }
 
-// old script starts here
-
-#define MAX_MESSAGES 26
+#define MAX_MESSAGES 20
 #define MAX_MSG_LEN 350
 char messages[MAX_MESSAGES][MAX_MSG_LEN];
 int messageCount = 0;
 void drawChatScreen(u64 kDown) {
+    HidTouchScreenState touchState;
     if (kDown & HidNpadButton_B) {
         memset(messages, 0, sizeof(messages));
         messageCount = 0;
@@ -750,17 +749,30 @@ void drawChatScreen(u64 kDown) {
             free(networkresult);
         }
     }
-    char title[128];
-    snprintf(title, sizeof(title), "Chat Screen | #%s", selectedRoom);
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, title, COL_WHITE, 22);
-    for (int i = 0; i < messageCount; i++) {
-        drawText(10, 80 + (i * 24), messages[i], COL_WHITE, 22);
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 0, 647, 1280, 73)) {
+            char* result = openKeyboard(300, "Enter your message");
+            if (result) {
+                char* msg = result;
+                char sender[512];
+                snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
+                char* networkresult = NULL;
+                network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+                free(networkresult);
+            }
+        }
     }
-
-    drawText(1140, 707, "Press Y to type a message", COL_WHITE, 11);
+    char title[128];
+    snprintf(title, sizeof(title), "Chat Screen - %s", selectedRoom);
+    drawText(0, 48, title, COL_WHITE, 48);
+    drawText(1043, 24, "Y to send a message\nB to go back", COL_WHITE, 24);
+    for (int i = 0; i < messageCount; i++) {
+        drawText(10, 82 + (i * 24), messages[i], COL_WHITE, 24);
+    }
+    drawImage("romfs:/images/boxes/sendmessage.png", 0, 647);
 }
-
 
 void append_message(char* msg_username, char* msg, char* msg_room) {
     if (strcmp(msg_room, selectedRoom) != 0) return;
@@ -848,6 +860,8 @@ int main(int argc, char* argv[]) {
             drawLogin(kDown);
         } else if (screen == 4) {
             drawRoomSelection(kDown);
+        } else if (screen == 5) {
+            drawChatScreen(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }
