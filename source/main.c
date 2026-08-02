@@ -1,17 +1,15 @@
+#include <ft2build.h>
 #include <switch.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <curl/curl.h>
-#include <ft2build.h>
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <png.h>
-#include <setjmp.h>
+#include "display.h"
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
@@ -23,183 +21,7 @@
 #define COL_RED     RGBA(0xFF, 0x00, 0x00, 0xFF)
 #define COL_BLACK   RGBA(0x00, 0x00, 0x00, 0xFF)
 
-static u32* framebuf;
-static u32 framebuf_width;
 static FT_Library ft;
-static FT_Face face;
-
-struct MemoryStruct {
-    char *memory;
-    size_t size;
-};
-
-void drawPixel(int x, int y, u32 color) {
-    if (x >= 0 && x < 1280 && y >= 0 && y < 720)
-        framebuf[y * framebuf_width + x] = color;
-}
-
-void drawRect(int x, int y, int w, int h, u32 color) {
-    for (int row = y; row < y + h && row < 720; row++)
-        for (int col = x; col < x + w && col < 1280; col++)
-            if (row >= 0 && col >= 0)
-                framebuf[row * framebuf_width + col] = color;
-}
-
-void clearScreen(u32 color) {
-    for (int y = 0; y < 720; y++)
-        for (int x = 0; x < 1280; x++)
-            framebuf[y * framebuf_width + x] = color;
-}
-
-void drawGlyph(int x, int y, FT_Bitmap* bmp, u32 color) {
-    u8 cr = (color >>  0) & 0xFF;
-    u8 cg = (color >>  8) & 0xFF;
-    u8 cb = (color >> 16) & 0xFF;
-
-    for (int row = 0; row < (int)bmp->rows; row++) {
-        for (int col = 0; col < (int)bmp->width; col++) {
-            int px = x + col;
-            int py = y + row;
-            if (px < 0 || px >= 1280 || py < 0 || py >= 720) continue;
-
-            u8 alpha = bmp->buffer[row * bmp->pitch + col];
-            if (alpha == 0) continue;
-
-            u32 existing = framebuf[py * framebuf_width + px];
-            u8 er = (existing >>  0) & 0xFF;
-            u8 eg = (existing >>  8) & 0xFF;
-            u8 eb = (existing >> 16) & 0xFF;
-
-            u8 a = alpha;
-            u8 r = (cr * a + er * (255 - a)) / 255;
-            u8 g = (cg * a + eg * (255 - a)) / 255;
-            u8 b = (cb * a + eb * (255 - a)) / 255;
-
-            framebuf[py * framebuf_width + px] = RGBA(r, g, b, 0xFF);
-        }
-    }
-}
-
-void drawImage(const char* path, int x, int y) {
-    FILE* fp = fopen(path, "rb");
-    if (!fp) return;
-
-    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) {
-        fclose(fp);
-        return;
-    }
-    png_infop info = png_create_info_struct(png);
-    if (!info) {
-        png_destroy_read_struct(&png, NULL, NULL);
-        fclose(fp);
-        return;
-    }
-    if (setjmp(png_jmpbuf(png))) {
-        png_destroy_read_struct(&png, &info, NULL);
-        fclose(fp);
-        return;
-    }
-    png_init_io(png, fp);
-    png_read_info(png, info);
-
-    int width = png_get_image_width(png, info);
-    int height = png_get_image_height(png, info);
-    png_byte color_type = png_get_color_type(png, info);
-    png_byte bit_depth = png_get_bit_depth(png, info);
-
-    if (bit_depth == 16) png_set_strip_16(png);
-    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
-    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
-    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
-    if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_PALETTE) png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
-    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
-
-    png_read_update_info(png, info);
-    png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
-    for(int i = 0; i < height; i++) row_pointers[i] = (png_byte*)malloc(png_get_rowbytes(png,info));
-    png_read_image(png, row_pointers);
-
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            int px = x + col;
-            int py = y + row;
-            if (px < 0 || px >= 1280 || py < 0 || py >= 720) continue;
-            png_byte* pixel = &(row_pointers[row][col * 4]);
-            u8 r = pixel[0];
-            u8 g = pixel[1];
-            u8 b = pixel[2];
-            u8 a = pixel[3];
-            if (a == 0) continue;
-            u32 existing = framebuf[py * framebuf_width + px];
-            u8 er = (existing >>  0) & 0xFF;
-            u8 eg = (existing >>  8) & 0xFF;
-            u8 eb = (existing >> 16) & 0xFF;
-            u8 dr = (r * a + er * (255 - a)) / 255;
-            u8 dg = (g * a + eg * (255 - a)) / 255;
-            u8 db = (b * a + eb * (255 - a)) / 255;
-            framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
-        }
-    }
-    for (int i = 0; i < height; i++) free(row_pointers[i]);
-    free(row_pointers);
-    png_destroy_read_struct(&png, &info, NULL);
-    fclose(fp);
-}
-
-bool isPointInRect(int px, int py, int rx, int ry, int rw, int rh) {
-    return (px >= rx && px <= rx + rw && py >= ry && py <= ry + rh);
-}
-
-void drawText(int x, int y, const char* text, u32 color, int size) {
-    FT_Set_Pixel_Sizes(face, 0, size);
-
-    int cx = x;
-    int cy = y;
-
-    for (const char* p = text; *p; p++) {
-        if (*p == '\n') {
-            cx = x;
-            cy += size + 4;
-            continue;
-        }
-
-        if (FT_Load_Char(face, *p, FT_LOAD_RENDER)) continue;
-
-        FT_GlyphSlot g = face->glyph;
-        int bx = cx + g->bitmap_left;
-        int by = cy - g->bitmap_top;
-
-        drawGlyph(bx, by, &g->bitmap, color);
-
-        cx += g->advance.x >> 6;
-    }
-}
-
-char* openKeyboard(int maxlen, const char* guideText) {
-    Result rc = 0;
-    SwkbdConfig kbd;
-    char* result = malloc(256);
-    
-    if (!result) return NULL;
-    
-    rc = swkbdCreate(&kbd, 0);
-    if (R_SUCCEEDED(rc)) {
-        swkbdConfigMakePresetDefault(&kbd);
-        swkbdConfigSetInitialText(&kbd, "");
-        swkbdConfigSetGuideText(&kbd, guideText);
-        swkbdConfigSetStringLenMax(&kbd, maxlen);
-        rc = swkbdShow(&kbd, result, 256);
-        swkbdClose(&kbd);
-        
-        if (R_SUCCEEDED(rc)) {
-            return result;
-        }
-    }
-    
-    free(result);
-    return NULL;
-}
 
 const char* errmsg = "";
 const char* errcode = "";
@@ -208,73 +30,6 @@ void drawError(const char* message, const char* error_code) {
     drawText(10, 48, "oops, something went wrong :/", COL_RED, 50);
     drawText(10, 114, message, COL_WHITE, 35);
     drawText(10, 710, error_code, COL_WHITE, 22);
-}
-
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t realsize = size * nmemb;
-    struct MemoryStruct *mem = (struct MemoryStruct *)userp;
-    
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if(!ptr) {
-        drawError("Not enough memory", "REALLOC_NULL");
-        return 0;
-    }
-    
-    mem->memory = ptr;
-    memcpy(&(mem->memory[mem->size]), contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = 0;
-    
-    return realsize;
-}
-
-void network_request(const char* url, char** result, const char* method, const char* body, const char* content_type, const char* authorization) {
-    CURL *curl;
-    CURLcode res;
-    struct MemoryStruct chunk;
-    struct curl_slist *headers = NULL;  // moved here
-    
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "aurorachat-switch/6.0");
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-        if (body != NULL) {
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(body));
-        }
-        if (content_type != NULL) {
-            char content_header[128];
-            snprintf(content_header, sizeof(content_header), "Content-Type: %s", content_type);
-            headers = curl_slist_append(headers, content_header);
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        }
-        if (authorization != NULL) {
-            char auth_header[512];
-            snprintf(auth_header, sizeof(auth_header), "auth: %s", authorization);
-            headers = curl_slist_append(headers, auth_header);
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        }
-        consoleUpdate(NULL);
-        res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-            drawError("curl_easy_perform() failed", curl_easy_strerror(res));
-            free(chunk.memory);
-            *result = NULL;
-        } else {
-            long response_code;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
-            *result = chunk.memory;
-        }
-        if (headers) curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-    }
-    curl_global_cleanup();
 }
 
 Mix_Chunk* sfx_cache[16];
@@ -449,7 +204,7 @@ void login() {
     snprintf(sender, sizeof(sender), "%s|%s|", username, password);
     char* loginreqresult = NULL;
     for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-        network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
+        // TODO: network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
     }
     if (loginreqresult == NULL) {
         errmsg = "The server never responded.";
@@ -486,7 +241,7 @@ void login() {
 
     // Fetch rooms
     char* roomreqresult = NULL;
-    network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
+    // TODO: network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
     roomresult = roomreqresult;
 
     // Play SFX
@@ -523,7 +278,7 @@ void createAccount() {
     snprintf(sender, sizeof(sender), "%s|%s|", username, password);
     char* loginreqresult = NULL;
     for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-        network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
+        // TODO: network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
     }
     if (loginreqresult == NULL) {
         errmsg = "The server never responded.";
@@ -560,7 +315,7 @@ void createAccount() {
 
     // Fetch rooms
     char* roomreqresult = NULL;
-    network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
+    // TODO: network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
     roomresult = roomreqresult;
 
     // Play SFX
@@ -745,7 +500,7 @@ void drawChatScreen(u64 kDown) {
             char sender[512];
             snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
             char* networkresult = NULL;
-            network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+            // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
             free(networkresult);
         }
     }
@@ -759,7 +514,7 @@ void drawChatScreen(u64 kDown) {
                 char sender[512];
                 snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
                 char* networkresult = NULL;
-                network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+                // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
                 free(networkresult);
             }
         }
@@ -805,7 +560,7 @@ int main(int argc, char* argv[]) {
     sock = socket(AF_INET, SOCK_STREAM, 0);
     memset(&server, 0, sizeof(server));
     server.sin_family = AF_INET;
-    server.sin_port = htons(3033);
+    server.sin_port = htons(7070);
     server.sin_addr.s_addr = inet_addr("104.236.25.60");
     connect(sock, (struct sockaddr*)&server, sizeof(server));
     int nonblock = 1;
