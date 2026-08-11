@@ -22,18 +22,46 @@
 #define COL_BLACK   RGBA(0x00, 0x00, 0x00, 0xFF)
 
 static FT_Library ft;
+static FT_Face face;
+static u32* framebuf;
+static u32 framebuf_width;
 
 const char* errmsg = "";
 const char* errcode = "";
+
+Mix_Chunk* sfx_cache[16];
+int sfx_count = 0;
+
+int screen = 0;
+char username[19];
+char password[16];
+char token[512];
+int sock;
+struct sockaddr_in server;
+
+int ruleslinescroll = 0;
+char *rules = NULL;
+
+bool showpass = false;
+int loginselection = 1;
+bool loginAttempted = false;
+char* roomresult = NULL;
+char** rooms = NULL;
+int roomcount = 0;
+
+int roomselection = 1;
+char* selectedRoom = "";
+
+#define MAX_MESSAGES 20
+#define MAX_MSG_LEN 350
+char messages[MAX_MESSAGES][MAX_MSG_LEN];
+int messageCount = 0;
 
 void drawError(const char* message, const char* error_code) {
     drawText(10, 48, "oops, something went wrong :/", COL_RED, 50);
     drawText(10, 114, message, COL_WHITE, 35);
     drawText(10, 710, error_code, COL_WHITE, 22);
 }
-
-Mix_Chunk* sfx_cache[16];
-int sfx_count = 0;
 
 Mix_Chunk* loadSFX(const char* path) {
     Mix_Chunk* sfx = Mix_LoadWAV(path);
@@ -107,13 +135,6 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen, 4 = room selection, 5 = chat screen
-char username[19];
-char password[16];
-char token[512];
-int sock;
-struct sockaddr_in server;
-
 void drawMainMenu(u64 kDown) {
     AppletOperationMode mode = appletGetOperationMode();
     HidTouchScreenState touchState;
@@ -135,9 +156,6 @@ void drawMainMenu(u64 kDown) {
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
-
-int ruleslinescroll = 0;
-char *rules = NULL;
 
 void loadRules() {
     FILE *file = fopen("romfs:/rules.txt", "r");
@@ -182,13 +200,6 @@ void drawRules(u64 kDown) {
 
     drawImage("romfs:/images/buttons/done.png", 524, 598);
 }
-
-bool showpass = false;
-int loginselection = 1;
-bool loginAttempted = false;
-char* roomresult = NULL;
-char** rooms = NULL;
-int roomcount = 0;
 
 void login() {
     if (strlen(username) == 0 || strlen(password) == 0) {
@@ -433,10 +444,6 @@ void parseRooms(const char* roomdata) {
     free(data);
 }
 
-// but are they truly useless? Nope nevermind
-int roomselection = 1;
-char* selectedRoom = "";
-
 void drawRoomSelection(u64 kDown) {
     if (roomresult && !rooms) {
         parseRooms(roomresult);
@@ -482,10 +489,6 @@ void drawRoomSelection(u64 kDown) {
     }
 }
 
-#define MAX_MESSAGES 20
-#define MAX_MSG_LEN 350
-char messages[MAX_MESSAGES][MAX_MSG_LEN];
-int messageCount = 0;
 void drawChatScreen(u64 kDown) {
     HidTouchScreenState touchState;
     if (kDown & HidNpadButton_B) {

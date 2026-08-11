@@ -1,20 +1,19 @@
 #include <sockets.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/ip6.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 
 int socket_create(const char *ip, short port) {
-    int s = socket(AF_INET6, SOCK_STREAM, 0);
+    int s = socket(AF_INET, SOCK_STREAM, 0);
     if(s == -1) return -1;
 
-    struct sockaddr_in6 addr;
-    if(inet_pton(AF_INET6, ip, &addr.sin6_addr) != 1) return -1;
-    addr.sin6_family = AF_INET6;
-    addr.sin6_port = htons(port);
+    struct sockaddr_in addr;
+    if(inet_pton(AF_INET, ip, &addr.sin_addr) != 1) return -1;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
 
     if(connect(s, (const struct sockaddr *) &addr, sizeof(addr))) return -1;
     
