@@ -10,6 +10,15 @@ static u32* framebuf;
 static u32 framebuf_width;
 static FT_Face face;
 
+void display_setFace(FT_Face f) {
+    face = f;
+}
+
+void display_setFramebuffer(u32* fb, u32 width) {
+    framebuf = fb;
+    framebuf_width = width;
+}
+
 void drawPixel(int x, int y, u32 color) {
     if (x >= 0 && x < 1280 && y >= 0 && y < 720)
         framebuf[y * framebuf_width + x] = color;

@@ -549,6 +549,7 @@ int main(int argc, char* argv[]) {
 
     FT_Init_FreeType(&ft);
     FT_New_Face(ft, "romfs:/fonts/OpenSans-Regular.ttf", 0, &face);
+    display_setFace(face);
 
     NWindow* win = nwindowGetDefault();
     Framebuffer fb;
@@ -594,6 +595,7 @@ int main(int argc, char* argv[]) {
         u32 stride;
         framebuf = (u32*)framebufferBegin(&fb, &stride);
         framebuf_width = stride / sizeof(u32);
+        display_setFramebuffer(framebuf, framebuf_width);
         clearScreen(COL_BG);
 
         char buffer[1024] = {0};

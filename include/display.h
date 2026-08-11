@@ -4,6 +4,8 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+void display_setFace(FT_Face f);
+void display_setFramebuffer(u32* fb, u32 width);
 void drawPixel(int x, int y, u32 color);
 void drawRect(int x, int y, int w, int h, u32 color);
 void clearScreen(u32 color);
