@@ -10,6 +10,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include "display.h"
+#include "v7.h"
+#include "sockbuf.h"
+#include "sockets.h"
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
@@ -29,6 +32,9 @@ static u32 framebuf_width;
 const char* errmsg = "";
 const char* errcode = "";
 
+int s;
+SOCKBUF_T sb;
+
 Mix_Chunk* sfx_cache[16];
 int sfx_count = 0;
 
@@ -45,12 +51,7 @@ char *rules = NULL;
 bool showpass = false;
 int loginselection = 1;
 bool loginAttempted = false;
-char* roomresult = NULL;
-char** rooms = NULL;
-int roomcount = 0;
-
-int roomselection = 1;
-char* selectedRoom = "";
+char selectedRoom[23] = "general";
 
 #define MAX_MESSAGES 20
 #define MAX_MSG_LEN 350
@@ -211,50 +212,37 @@ void login() {
 
     if (loginAttempted) return;
     loginAttempted = true;
-    char sender[512];
-    snprintf(sender, sizeof(sender), "%s|%s|", username, password);
-    char* loginreqresult = NULL;
-    for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-        // TODO: network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
+    v7_loginOrRegister(s, "login", username, password);
+    char login_errorcode[512] = {0};
+    char login_banreason[512] = {0};
+
+    switch(v7_loginOKCheck(&sb, login_errorcode, login_banreason, sizeof(login_errorcode), sizeof(login_banreason))) {
+        case 1:
+            errmsg = socket_error();
+            errcode = "SOCKET_ERROR";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        case 3:
+            errmsg = login_errorcode;
+            errcode = "LOGIN_ERROR";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        case 4:
+            char err_msg[512];
+            snprintf(err_msg, sizeof(err_msg), "You are banned!\n%s", login_banreason);
+            errmsg = err_msg;
+            errcode = "BANNED";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        default:
+        break;
     }
-    if (loginreqresult == NULL) {
-        errmsg = "The server never responded.";
-        errcode = "SRV_UNREACH";
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-
-    if (strstr(loginreqresult, "ERR_WRONG_PASS") != NULL) {
-        errmsg = "You entered the wrong password. Try again.";
-        errcode = "WRONG_PASS";
-        free(loginreqresult);
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-
-    char loginbuf[1024];
-    strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
-    loginbuf[sizeof(loginbuf) - 1] = '\0';
-    free(loginreqresult);
-
-    char* parsed_token = strtok(loginbuf, "|");
-    if (parsed_token == NULL) {
-        errmsg = "Invalid response from server.";
-        errcode = "BAD_TOKEN";
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-    strncpy(token, parsed_token, sizeof(token) - 1);
-    token[sizeof(token) - 1] = '\0';
-
-    // Fetch rooms
-    char* roomreqresult = NULL;
-    // TODO: network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
-    roomresult = roomreqresult;
-
     // Play SFX
     Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
     playSFX(signedup_sfx, 150);
@@ -285,50 +273,37 @@ void createAccount() {
 
     if (loginAttempted) return;
     loginAttempted = true;
-    char sender[512];
-    snprintf(sender, sizeof(sender), "%s|%s|", username, password);
-    char* loginreqresult = NULL;
-    for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
-        // TODO: network_request("http://104.236.25.60:6767/api/signup", &loginreqresult, "POST", sender, "text/plain", NULL);
+    v7_loginOrRegister(s, "register", username, password);
+    char login_errorcode[512] = {0};
+    char login_banreason[512] = {0};
+
+    switch(v7_loginOKCheck(&sb, login_errorcode, login_banreason, sizeof(login_errorcode), sizeof(login_banreason))) {
+        case 1:
+            errmsg = socket_error();
+            errcode = "SOCKET_ERROR";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        case 3:
+            errmsg = login_errorcode;
+            errcode = "REGISTER_ERROR";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        case 4:
+            char err_msg[512];
+            snprintf(err_msg, sizeof(err_msg), "You are banned!\n%s", login_banreason);
+            errmsg = err_msg;
+            errcode = "BANNED";
+            screen = 1;
+            socket_destroy(s);
+            return;
+
+        default:
+        break;
     }
-    if (loginreqresult == NULL) {
-        errmsg = "The server never responded.";
-        errcode = "SRV_UNREACH";
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-
-    if (strstr(loginreqresult, "ERR_USER_USED") != NULL) {
-        errmsg = "This user is already used.";
-        errcode = "USER_USED";
-        free(loginreqresult);
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-
-    char loginbuf[1024];
-    strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
-    loginbuf[sizeof(loginbuf) - 1] = '\0';
-    free(loginreqresult);
-
-    char* parsed_token = strtok(loginbuf, "|");
-    if (parsed_token == NULL) {
-        errmsg = "Invalid response from server.";
-        errcode = "BAD_TOKEN";
-        loginAttempted = false;
-        screen = 1;
-        return;
-    }
-    strncpy(token, parsed_token, sizeof(token) - 1);
-    token[sizeof(token) - 1] = '\0';
-
-    // Fetch rooms
-    char* roomreqresult = NULL;
-    // TODO: network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
-    roomresult = roomreqresult;
-
     // Play SFX
     Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
     playSFX(signedup_sfx, 150);
@@ -411,82 +386,41 @@ void drawLogin(u64 kDown) {
     drawImage("romfs:/images/buttons/createacc.png", 506, 516);
 }
 
-void parseRooms(const char* roomdata) {
-    if (!roomdata) return;
-    
-    if (rooms) {
-        for (int i = 0; i < roomcount; i++) {
-            free(rooms[i]);
-        }
-        free(rooms);
-        rooms = NULL;
-        roomcount = 0;
-    }
-    char* data = strdup(roomdata);
-    char* token = strtok(data, "|");
-    
-    if (token) {
-        roomcount = atoi(token);
-        if (roomcount > 0) {
-            rooms = malloc(roomcount * sizeof(char*));
-            
-            for (int i = 0; i < roomcount; i++) {
-                token = strtok(NULL, "|");
-                if (token) {
-                    rooms[i] = strdup(token);
-                } else {
-                    rooms[i] = strdup("Unknown Room");
-                }
-            }
-        }
-    }
-    
-    free(data);
-}
-
 void drawRoomSelection(u64 kDown) {
-    if (roomresult && !rooms) {
-        parseRooms(roomresult);
-    }
     AppletOperationMode mode = appletGetOperationMode();
     HidTouchScreenState touchState;
+    if (kDown & HidNpadButton_A) {
+        screen = 5;
+        return;
+    } else if (kDown & HidNpadButton_Y) {
+        char* result = openKeyboard(23, "Enter the room's name");
+        if (result) {
+            strncpy(selectedRoom, result, sizeof(selectedRoom) - 1);
+            selectedRoom[sizeof(selectedRoom) - 1] = '\0';
+            free(result);
+        }
+    }
     if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
         u32 tx = touchState.touches[0].x;
         u32 ty = touchState.touches[0].y;
-        if (rooms && roomcount > 0) {
-            for (int i = 0; i < roomcount; i++) {
-                int y_pos = 77 + (i * 85);
-                if (isPointInRect(tx, ty, 17, y_pos, 1249, 73)) {
-                    roomselection = i + 1;
-                    selectedRoom = rooms[i];
-                    screen = 5;
-                    return;
-                }
+        if (isPointInRect(tx, ty, 102, 266, 1073, 73)) {
+            char* result = openKeyboard(23, "Enter the room's name");
+            if (result) {
+                strncpy(selectedRoom, result, sizeof(selectedRoom) - 1);
+                selectedRoom[sizeof(selectedRoom) - 1] = '\0';
+                free(result);
             }
+            return;
+        } else if (isPointInRect(tx, ty, 495, 373, 298, 73)) {
+            screen = 5;
+            return;
         }
     }
-    if (mode == AppletOperationMode_Console) drawText(0, 24, "D-Pad to Select a Room\nA to Enter the Selected Room", COL_WHITE, 24);
-    if (kDown & HidNpadButton_Down) {
-        roomselection++;
-        if (roomselection > roomcount) roomselection = 1;
-    } else if (kDown & HidNpadButton_Up) {
-        roomselection--;
-        if (roomselection < 1) roomselection = roomcount;
-    } else if (kDown & HidNpadButton_A) {
-        selectedRoom = rooms[roomselection-1];
-        screen = 5;
-    }
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to Input the Room's name\nA to Enter the Room", COL_WHITE, 24);
     drawText(463, 48, "Room Selection", COL_WHITE, 48);
-
-    if (rooms && roomcount > 0) {
-        for (int i = 0; i < roomcount; i++) {
-            int y_pos = 77 + (i * 85);
-            drawImage((i + 1 == roomselection) ? "romfs:/images/boxes/room_hover.png" : "romfs:/images/boxes/room.png", 17, y_pos);
-            drawText(35, y_pos+55, rooms[i], COL_WHITE, 48);
-        }
-    } else {
-        drawError("Failed to load rooms", "ROOM_FETCH_FAIL");
-    }
+    drawImage("romfs:/images/boxes/room.png", 102, 266);
+    drawText(119, 321, selectedRoom, COL_WHITE, 48);
+    drawImage("romfs:/images/buttons/joinroom.png", 495, 373);
 }
 
 void drawChatScreen(u64 kDown) {
@@ -560,15 +494,15 @@ int main(int argc, char* argv[]) {
     PadState pad;
     padInitializeDefault(&pad);
 
-    socketInitializeDefault();
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&server, 0, sizeof(server));
-    server.sin_family = AF_INET;
-    server.sin_port = htons(7070);
-    server.sin_addr.s_addr = inet_addr("104.236.25.60");
-    connect(sock, (struct sockaddr*)&server, sizeof(server));
-    int nonblock = 1;
-    ioctl(sock, FIONBIO, &nonblock);
+    s = socket_create("192.168.0.194", 7070);
+    if (s == -1) {
+        errmsg = "Failed to connect to server.";
+        errcode = socket_error();
+        screen = 1;
+    }
+    sockbuf_init(&sb, s);
+    char servername[512] = {0}; // i dont need this but i also do for some reason
+    v7_waitforhello(&sb, servername, sizeof(servername));
 
     loadRules();
     SDL_Init(SDL_INIT_AUDIO);

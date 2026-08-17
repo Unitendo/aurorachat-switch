@@ -8,22 +8,31 @@
 int v7_waitforhello(SOCKBUF_T *sb, char *servername, size_t sname_n) {
     char buffer[1024] = {0};
     
-    if(sockbuf_getline(sb, buffer, sizeof(buffer) - 1) == -1)
+    if (sockbuf_getline(sb, buffer, sizeof(buffer) - 1) == -1) {
         return 1;
+    }
 
     char *token = strtok(buffer, "|");
-    if(!token) return 2;
-    if(strncmp(token, "hello", sizeof(buffer)))
+    if (!token) {
         return 2;
+    }
+    if (strncmp(token, "hello", sizeof(buffer))) {
+        return 2;
+    }
 
     token = strtok(NULL, "|");
-    if(!token) return 2;
-    if(strncmp(token, "v7", sizeof(buffer)))
+    if (!token) {
         return 2;
+    }
+    if (strncmp(token, "v7", sizeof(buffer))) {
+        return 2;
+    }
 
     servername[0] = 0;
     token = strtok(NULL, "|");
-    if(!token) return 0;
+    if (!token) {
+        return 0;
+    }
     strncpy(servername, token, sname_n);
     servername[sname_n - 1] = 0;
     
@@ -33,8 +42,10 @@ int v7_waitforhello(SOCKBUF_T *sb, char *servername, size_t sname_n) {
 void v7_encode(char *dst, const char *src, size_t n) {
     int i = 0, j = 0;
     char c;
-    while( (c = src[i]) ) { 
-        if(j >= n - 1) break;
+    while (c = src[i]) { 
+        if (j >= n - 1) {
+            break;
+        }
         switch(c) {
             case '%':
                 j += 3;

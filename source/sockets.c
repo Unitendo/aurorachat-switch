@@ -1,12 +1,14 @@
 #include <sockets.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <switch.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
 
 int socket_create(const char *ip, short port) {
+    socketInitializeDefault();
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if(s == -1) return -1;
 
