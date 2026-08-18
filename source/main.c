@@ -154,7 +154,7 @@ void drawMainMenu(u64 kDown) {
     }
 
     if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
-    drawText(1180, 715, "v26.7.14", COL_WHITE, 24);
+    drawText(1180, 715, "v26.8.18", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
@@ -436,13 +436,7 @@ void drawChatScreen(u64 kDown) {
     if (kDown & HidNpadButton_Y) {
         char* result = openKeyboard(300, "Enter your message");
         if (result) {
-            char* msg = result;
-            char sender[512];
-            snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
-            char* networkresult = NULL;
-            // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
-            v7_sendMsg(s, msg);
-            free(networkresult);
+            v7_sendMsg(s, result);
         }
     }
     if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
@@ -451,13 +445,7 @@ void drawChatScreen(u64 kDown) {
         if (isPointInRect(tx, ty, 0, 647, 1280, 73)) {
             char* result = openKeyboard(300, "Enter your message");
             if (result) {
-                char* msg = result;
-                char sender[512];
-                snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
-                char* networkresult = NULL;
-                // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
-                v7_sendMsg(s, msg);
-                free(networkresult);
+                v7_sendMsg(s, result);
             }
         }
     }
@@ -498,7 +486,7 @@ int main(int argc, char* argv[]) {
     PadState pad;
     padInitializeDefault(&pad);
 
-    s = socket_create("192.168.0.194", 7070);
+    s = socket_create("104.236.25.60", 7070);
     if (s == -1) {
         errmsg = "Failed to connect to server.";
         errcode = socket_error();
