@@ -48,6 +48,7 @@ struct sockaddr_in server;
 int ruleslinescroll = 0;
 char *rules = NULL;
 
+bool loggedin = false;
 bool showpass = false;
 int loginselection = 1;
 bool loginAttempted = false;
@@ -259,7 +260,7 @@ void login() {
         screen = 1;
     }
     Mix_PlayMusic(audio, -1);
-
+    loggedin = true;
     screen = 4;
 }
 
@@ -320,7 +321,7 @@ void createAccount() {
         screen = 1;
     }
     Mix_PlayMusic(audio, -1);
-
+    loggedin = true;
     screen = 4;
 }
 
@@ -390,6 +391,7 @@ void drawRoomSelection(u64 kDown) {
     AppletOperationMode mode = appletGetOperationMode();
     HidTouchScreenState touchState;
     if (kDown & HidNpadButton_A) {
+        v7_joinRoom(s, selectedRoom);
         screen = 5;
         return;
     } else if (kDown & HidNpadButton_Y) {
@@ -412,6 +414,7 @@ void drawRoomSelection(u64 kDown) {
             }
             return;
         } else if (isPointInRect(tx, ty, 495, 373, 298, 73)) {
+            v7_joinRoom(s, selectedRoom);
             screen = 5;
             return;
         }
@@ -438,6 +441,7 @@ void drawChatScreen(u64 kDown) {
             snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
             char* networkresult = NULL;
             // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+            v7_sendMsg(s, msg);
             free(networkresult);
         }
     }
@@ -452,6 +456,7 @@ void drawChatScreen(u64 kDown) {
                 snprintf(sender, sizeof(sender), "%s|%s|", msg, selectedRoom);
                 char* networkresult = NULL;
                 // TODO: network_request("http://104.236.25.60:6767/api/chat", &networkresult, "POST", sender, "text/plain", token);
+                v7_sendMsg(s, msg);
                 free(networkresult);
             }
         }
@@ -466,8 +471,7 @@ void drawChatScreen(u64 kDown) {
     drawImage("romfs:/images/boxes/sendmessage.png", 0, 647);
 }
 
-void append_message(char* msg_username, char* msg, char* msg_room) {
-    if (strcmp(msg_room, selectedRoom) != 0) return;
+void append_message(char* msg_username, char* msg) {
     if (messageCount >= MAX_MESSAGES) {
         for (int i = 0; i < MAX_MESSAGES - 1; i++) {
             memcpy(messages[i], messages[i+1], MAX_MSG_LEN);
@@ -532,18 +536,6 @@ int main(int argc, char* argv[]) {
         display_setFramebuffer(framebuf, framebuf_width);
         clearScreen(COL_BG);
 
-        char buffer[1024] = {0};
-        ssize_t len = recv(sock, buffer, sizeof(buffer) - 1, 0);
-        if (len > 0) {
-            buffer[len] = '\0';
-            char* username = strtok(buffer, "|");
-            char* message  = strtok(NULL, "|");
-            char* room     = strtok(NULL, "|");
-            if (username && message && room) {
-                append_message(username, message, room);
-            }
-        } else if (len == 0) {}
-        
         if (screen == 0) {
             drawMainMenu(kDown);
         } else if (screen == 1) {
@@ -555,6 +547,41 @@ int main(int argc, char* argv[]) {
         } else if (screen == 4) {
             drawRoomSelection(kDown);
         } else if (screen == 5) {
+            char buffer[4096] = {0};
+            size_t recvd = socket_recv_nonblock(s, buffer, sizeof(buffer) - 1);
+            if (recvd > 4095) {
+                recvd = 0;
+            }
+            buffer[recvd] = 0;
+
+            int ptr = 0;
+            while(buffer[ptr] && (buffer[ptr] != '\n')) {
+                char message[4096] = {0};
+                int i = 0;
+                while(buffer[ptr] && (buffer[ptr] != '\n')) {
+                    message[i] = buffer[ptr];
+                    i++;
+                    ptr++;
+                }
+                if(buffer[ptr] == '\n') ptr++;
+
+                char *token = strtok(message, "|");
+
+                char author[64] = {0};
+                char content[1024] = {0};
+
+                if(token == NULL) continue;
+                if(strncmp(token, "msg", sizeof(buffer))) 
+                    continue;
+
+                token = strtok(NULL, "|");
+                if(token == NULL) continue;
+                v7_decode(author, token, sizeof(author));
+                token = strtok(NULL, "|");
+                if(token == NULL) continue;
+                v7_decode(content, token, sizeof(content));
+                append_message(author, content);
+            }
             drawChatScreen(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
