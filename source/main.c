@@ -486,7 +486,7 @@ int main(int argc, char* argv[]) {
     PadState pad;
     padInitializeDefault(&pad);
 
-    s = socket_create("104.236.25.60", 7070);
+    s = socket_create("144.217.26.87", 7070);
     if (s == -1) {
         errmsg = "Failed to connect to server.";
         errcode = socket_error();
